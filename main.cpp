@@ -59,12 +59,11 @@ MbedCloudClientResource *button_res;
 MbedCloudClientResource *led_res;
 MbedCloudClientResource *post_res;
 
-
-MbedCloudClientResource *seoul_water_meter_res;
 MbedCloudClientResource *power_meter_res;
-MbedCloudClientResource *gas_meter_res;
+MbedCloudClientResource *seoul_water_meter_res;
 MbedCloudClientResource *water_meter_res;
 MbedCloudClientResource *hot_water_meter_res;
+MbedCloudClientResource *gas_meter_res;
 MbedCloudClientResource *heat_meter_res;
 
 // An event queue is a very useful structure to debounce information between contexts (e.g. ISR and normal threads)
@@ -213,27 +212,33 @@ void heat_meter_callback(MbedCloudClientResource *resource, const NoticationDeli
 
 enum
 {
-	PSTEC_REQUEST_STX                                                     = 0xC0,
-	PSTEC_REQUEST_ETX                                                     = 0xD0,
-	PSTEC_RESPONSE_STX                                                    = PSTEC_REQUEST_STX,
-	PSTEC_RESPONSE_ETX                                                    = PSTEC_REQUEST_ETX,
-	PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_WATER                              = 0x02,
-	PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HOT_WATER                          = 0x03,
-	PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_GAS                                = 0x04,
-	PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HEAT                               = 0x05,
-	PSTEC_MAGIC_CODE_1ST_BYTE                                             = 0x22,
-	PSTEC_MAGIC_CODE_2ND_BYTE                                             = 0x69,
-	PSTEC_MAGIC_CODE_3RD_BYTE                                             = 0x6E,
-	PSTEC_MAGIC_CODE_4TH_BYTE                                             = 0x73,
-	PSTEC_REQUEST_PACKET_LENGTH                                           = 0x04,  // 4 bytes
-	PSTEC_RESPONSE_PACKET_LENGTH_NORMAL_ACCUM                             = 0x0B,  // 11 bytes
-	PSTEC_RESPONSE_PACKET_APDU_LENGTH_NORMAL_ACCUM                        = 0x03,  //  3 bytes
+   PSTEC_REQUEST_STX                                                     = 0xC0,
+   PSTEC_REQUEST_ETX                                                     = 0xD0,
+   PSTEC_RESPONSE_STX                                                    = PSTEC_REQUEST_STX,
+   PSTEC_RESPONSE_ETX                                                    = PSTEC_REQUEST_ETX,
+//@   PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_WATER                              = 0x02,
+//@   PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HOT_WATER                          = 0x03,
+//@   PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_GAS                                = 0x04,
+//@   PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HEAT                               = 0x05,
+   PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_WATER                          = 0xF2,
+   PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_HOT_WATER                      = 0xF3,
+   PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_GAS                            = 0xF4,
+   PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_HEAT                           = 0xF5,
+   PSTEC_MAGIC_CODE_1ST_BYTE                                             = 0x22,
+   PSTEC_MAGIC_CODE_2ND_BYTE                                             = 0x69,
+   PSTEC_MAGIC_CODE_3RD_BYTE                                             = 0x6E,
+   PSTEC_MAGIC_CODE_4TH_BYTE                                             = 0x73,
+   PSTEC_REQUEST_PACKET_LENGTH                                           = 0x04,  // 4 bytes
+//@   PSTEC_RESPONSE_PACKET_LENGTH_NORMAL_ACCUM                             = 0x0B,  // 11 bytes
+   PSTEC_RESPONSE_PACKET_LENGTH_PRECISE_ACCUM_INSTANT                    = 0x0E,  // 14 bytes
+//@   PSTEC_RESPONSE_PACKET_APDU_LENGTH_NORMAL_ACCUM                        = 0x03,  //  3 bytes
+   PSTEC_RESPONSE_PACKET_APDU_LENGTH_PRECISE_ACCUM_INSTANT               = 0x0A,  // 10 bytes
 
-	SEOUL_REQUEST_STX           = 0x10,
-	SEOUL_REQUEST_ETX           = 0x16,
-	SEOUL_RESPONSE_STX          = 0x68,
-	SEOUL_RESPONSE_ETX          = SEOUL_REQUEST_ETX,
-	SEOUL_REQUEST_PACKET_LENGTH = 0x05  // 4 bytes
+   SEOUL_REQUEST_STX           = 0x10,
+   SEOUL_REQUEST_ETX           = 0x16,
+   SEOUL_RESPONSE_STX          = 0x68,
+   SEOUL_RESPONSE_ETX          = SEOUL_REQUEST_ETX,
+   SEOUL_REQUEST_PACKET_LENGTH = 0x05  // 4 bytes
 };
 
 typedef enum
@@ -391,10 +396,10 @@ void threadUart1_SeoulWaterMeter() {
         //printf("### threadUart1 - 4\n");
 
         int nCount = bufUart1.size();
-         //printf("#### threadUart1 - Buffer Count : %d\n", nCount);
+         //printf("# thUart1- Buffer Count : %d\n", nCount);
 
         if (21 <= (nCount + seoulPacketRcvdBytes)) {
-            printf("#### threadUart1 - Buffer Count : %d\n", nCount);
+            printf("# thUart1- Buffer Count : %d\n", nCount);
             char ch = 0;
 			for (uint8_t i = 0; i < nCount; i++) {
 				bufUart1.pop(ch);
@@ -402,114 +407,114 @@ void threadUart1_SeoulWaterMeter() {
 				switch (seoulPacketState)
 				{
 					case SEOUL_PACKET_RX_1ST_STX:
-                        //printf("#### threadUart1 - 1. SEOUL_RESPONSE_STX 0\n");
+                        //printf("# thUart1- 1. SEOUL_RESPONSE_STX 0\n");
 						if (ch == SEOUL_RESPONSE_STX) {
 							seoulPacketState = SEOUL_PACKET_RX_1ST_L_FIELD;
 							buffer[seoulPacketRcvdBytes++] = ch;
-                             //printf("#### threadUart1 - 1. SEOUL_RESPONSE_STX 1\n");
+                             //printf("# thUart1- 1. SEOUL_RESPONSE_STX 1\n");
 						}
 						break;
 
 					case SEOUL_PACKET_RX_1ST_L_FIELD:
-                        //printf("#### threadUart1 - 2. SEOUL_PACKET_RX_1ST_L_FIELD 0\n");
+                        //printf("# thUart1- 2. SEOUL_PACKET_RX_1ST_L_FIELD 0\n");
 						seoulPacketState       = SEOUL_PACKET_RX_2ND_L_FIELD;
 						seoulPacketLFieldValue = ch;
 						buffer[seoulPacketRcvdBytes++] = ch;
 						break;
 
 					case SEOUL_PACKET_RX_2ND_L_FIELD:
-                        //printf("#### threadUart1 - 3. SEOUL_PACKET_RX_2ND_L_FIELD 0\n");
+                        //printf("# thUart1- 3. SEOUL_PACKET_RX_2ND_L_FIELD 0\n");
 						if (ch == seoulPacketLFieldValue) {
 							seoulPacketState = SEOUL_PACKET_RX_2ND_STX;
 							buffer[seoulPacketRcvdBytes++] = ch;
-                            //printf("#### threadUart1 - 3. SEOUL_PACKET_RX_2ND_L_FIELD 1\n");
+                            //printf("# thUart1- 3. SEOUL_PACKET_RX_2ND_L_FIELD 1\n");
 						}
 						else {
 							resetSeoulResponseState();
-                            printf("#### threadUart1 - 3. SEOUL_PACKET_RX_2ND_L_FIELD resetSeoulResponseState\n");
+                            printf("# thUart1- 3. SEOUL_PACKET_RX_2ND_L_FIELD resetSeoulResponseState\n");
 						}
 						break;
 
 					case SEOUL_PACKET_RX_2ND_STX:
-                        //printf("#### threadUart1 - 4. SEOUL_PACKET_RX_2ND_STX 0\n");
+                        //printf("# thUart1- 4. SEOUL_PACKET_RX_2ND_STX 0\n");
 						if (ch == SEOUL_RESPONSE_STX) {
 							seoulPacketState = SEOUL_PACKET_RX_C_FIELD;
 							buffer[seoulPacketRcvdBytes++] = ch;
-                            //printf("#### threadUart1 - 4. SEOUL_PACKET_RX_2ND_STX 1\n");
+                            //printf("# thUart1- 4. SEOUL_PACKET_RX_2ND_STX 1\n");
 						}
 						break;
 
 					case SEOUL_PACKET_RX_C_FIELD:
-                        //printf("#### threadUart1 - 5. SEOUL_PACKET_RX_C_FIELD 0\n");
+                        //printf("# thUart1- 5. SEOUL_PACKET_RX_C_FIELD 0\n");
 						if (ch < 0x80) {
 							seoulPacketState    = SEOUL_PACKET_RX_A_FIELD;
 							seoulPacketChecksum = ch;
 							buffer[seoulPacketRcvdBytes++] = ch;
-                            //printf("#### threadUart1 - 5. SEOUL_PACKET_RX_C_FIELD 1\n");
+                            //printf("# thUart1- 5. SEOUL_PACKET_RX_C_FIELD 1\n");
 						}
 						else {
 							resetSeoulResponseState();
-                            printf("#### threadUart1 - 5. SEOUL_PACKET_RX_C_FIELD resetSeoulResponseState\n");
+                            printf("# thUart1- 5. SEOUL_PACKET_RX_C_FIELD resetSeoulResponseState\n");
 						}
 						break;
 
 					case SEOUL_PACKET_RX_A_FIELD:
-                        //printf("#### threadUart1 - 6. SEOUL_PACKET_RX_A_FIELD 0\n");
+                        //printf("# thUart1- 6. SEOUL_PACKET_RX_A_FIELD 0\n");
 						seoulPacketState     = SEOUL_PACKET_RX_CI_FIELD;
 						seoulPacketChecksum += ch;
 						buffer[seoulPacketRcvdBytes++] = ch;
 						break;
 
 					case SEOUL_PACKET_RX_CI_FIELD:
-                        //printf("#### threadUart1 - 7. SEOUL_PACKET_RX_CI_FIELD 0\n");
+                        //printf("# thUart1- 7. SEOUL_PACKET_RX_CI_FIELD 0\n");
 						seoulPacketState     = SEOUL_PACKET_RX_DATA;
 						seoulPacketChecksum += ch;
 						buffer[seoulPacketRcvdBytes++] = ch;
 						break;
 
 					case SEOUL_PACKET_RX_DATA:
-                        //printf("#### threadUart1 - 8. SEOUL_PACKET_RX_DATA 0\n");
+                        //printf("# thUart1- 8. SEOUL_PACKET_RX_DATA 0\n");
 						seoulPacketUserDataLen++;
 						seoulPacketChecksum += ch;
 						buffer[seoulPacketRcvdBytes++] = ch;
                         // 3 = C (1 byte) + A (1 byte) + CI (1 byte)
 						if ((seoulPacketUserDataLen + 3) > seoulPacketLFieldValue) {
 							resetSeoulResponseState();
-                            printf("#### threadUart1 - 8. SEOUL_PACKET_RX_DATA resetSeoulResponseState\n");
+                            printf("# thUart1- 8. SEOUL_PACKET_RX_DATA resetSeoulResponseState\n");
 						}
 						else if ((seoulPacketUserDataLen + 3) == seoulPacketLFieldValue) {
 							seoulPacketState = SEOUL_PACKET_RX_CHECKSUM;
-                            //printf("#### threadUart1 - 8. SEOUL_PACKET_RX_DATA 1\n");
+                            //printf("# thUart1- 8. SEOUL_PACKET_RX_DATA 1\n");
 						}
 						break;
 
 					case SEOUL_PACKET_RX_CHECKSUM:
-                        //printf("#### threadUart1 - 9. SEOUL_PACKET_RX_CHECKSUM 0\n");
+                        //printf("# thUart1- 9. SEOUL_PACKET_RX_CHECKSUM 0\n");
 						//if (ch == seoulPacketChecksum) {
                         if (true) {     // Ignore checksum fail
 							seoulPacketState = SEOUL_PACKET_RX_ETX;
 							buffer[seoulPacketRcvdBytes++] = ch;
-                            //printf("#### threadUart1 - 9. SEOUL_PACKET_RX_CHECKSUM 1\n");
+                            //printf("# thUart1- 9. SEOUL_PACKET_RX_CHECKSUM 1\n");
 						}
 						else {
 							resetSeoulResponseState();
-                            printf("#### threadUart1 - 9. SEOUL_PACKET_RX_CHECKSUM resetSeoulResponseState ch=%02x CheckSum=%02x\n", ch, seoulPacketChecksum);
+                            printf("# thUart1- 9. SEOUL_PACKET_RX_CHECKSUM resetSeoulResponseState ch=%02x CheckSum=%02x\n", ch, seoulPacketChecksum);
 #if 0
                             int nValue = 0;
                             makeBcdToInt(nValue, (buffer+15), 4);
-                            printf("#### threadUart1 - nValue : %d\n", nValue);
+                            printf("# thUart1- nValue : %d\n", nValue);
                             float fValue = (float)nValue / 1000;
                             seoul_water_meter_res->set_value(fValue);
                             //power_meter_res->set_value(fValue);
-                            printf("#### threadUart1 - Seoul Water Meter : %02x %02x %02x %02x\n", 
+                            printf("# thUart1- Seoul Water Meter : %02x %02x %02x %02x\n", 
                                     buffer[15], buffer[16], buffer[17], buffer[18]);
-                            printf("#### threadUart1 - Seoul Water Meter : %.3f\n", fValue);
+                            printf("# thUart1- Seoul Water Meter : %.3f\n", fValue);
 #endif
 						}
 						break;
 
 					case SEOUL_PACKET_RX_ETX:
-                        //printf("#### threadUart1 - 10. SEOUL_PACKET_RX_ETX 0\n");
+                        //printf("# thUart1- 10. SEOUL_PACKET_RX_ETX 0\n");
 						if (ch == SEOUL_RESPONSE_ETX) {
 							buffer[seoulPacketRcvdBytes++] = ch;
 
@@ -517,14 +522,14 @@ void threadUart1_SeoulWaterMeter() {
                             makeBcdToInt(nValue, (buffer+15), 4);
                             float fValue = (float)nValue / 1000;
                             seoul_water_meter_res->set_value(fValue);
-                            printf("#### threadUart1 - Seoul Water Meter : %.3f\n", fValue);
+                            printf("# thUart1- Seoul Water Meter : %.3f\n", fValue);
                         }
 
 						resetSeoulResponseState();
 						break;
 
 					default:
-                        printf("#### threadUart1 - 11. default %d\n", seoulPacketState);
+                        printf("# thUart1- 11. default %d\n", seoulPacketState);
 						break;
 				}
 			}
@@ -568,19 +573,23 @@ void request_OtherMeters(uint8_t meterType) {
 }
 
 void request_WaterMeter() {
-    request_OtherMeters(PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_WATER);
+//@    request_OtherMeters(PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_WATER);
+    request_OtherMeters(PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_WATER);
 }
 
 void request_HotWaterMeter() {
-    request_OtherMeters(PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HOT_WATER);
+//@    request_OtherMeters(PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HOT_WATER);
+    request_OtherMeters(PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_HOT_WATER);
 }
 
 void request_GasMeter() {
-    request_OtherMeters(PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_GAS);
+//@    request_OtherMeters(PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_GAS);
+    request_OtherMeters(PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_GAS);
 }
 
 void request_HeatMeter() {
-    request_OtherMeters(PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HEAT);
+//@    request_OtherMeters(PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HEAT);
+    request_OtherMeters(PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_HEAT);
 }
 
 void threadUart2_OtherMeters() {
@@ -592,12 +601,12 @@ void threadUart2_OtherMeters() {
         //printf("### threadUart2 - 4\n");
 
         int nCount = bufUart2.size();
-        //printf("#### threadUart2 - Buffer Count : %d\n", nCount);
+        //printf("# thUart2- Buffer Count : %d\n", nCount);
 
-        if (11 <= (nCount + dplcPacketRcvdBytes)) {
-            printf("#### threadUart2 - Buffer Count : %d\n", nCount);
+        if (PSTEC_RESPONSE_PACKET_LENGTH_PRECISE_ACCUM_INSTANT <= (nCount + dplcPacketRcvdBytes)) {
+            //printf("# thUart2- Buffer Count : %d\n", nCount);
             char ch = 0;
-			for (uint8_t i = 0; i < nCount; i++) {
+			for (int i = 0; i < nCount; i++) {
 				bufUart2.pop(ch);
 
 				switch (dplcPacketState) {
@@ -650,19 +659,20 @@ void threadUart2_OtherMeters() {
 						}
 						break;
 
-					case PSTEC_PACKET_RX_STX:
-						if (ch == PSTEC_RESPONSE_STX) {
-							dplcPacketState    = PSTEC_PACKET_RX_MAGIC_CODE_1ST_BYTE;
-							dplcPacketChecksum = ch;
+                    case PSTEC_PACKET_RX_STX:
+                        if (ch == PSTEC_RESPONSE_STX) {
+        //@                     dplcPacketState    = PSTEC_PACKET_RX_MAGIC_CODE_1ST_BYTE;
+                            dplcPacketState    = PSTEC_PACKET_RX_ID;
+                            dplcPacketChecksum = ch;
 
-							buffer[dplcPacketRcvdBytes-PSTEC_REQUEST_PACKET_LENGTH] = ch;
+                            buffer[dplcPacketRcvdBytes-PSTEC_REQUEST_PACKET_LENGTH] = ch;
 
-							dplcPacketRcvdBytes++;
-						}
-						else {
-							resetDplcResponseState();
-						}
-						break;
+                            dplcPacketRcvdBytes++;
+                        }
+                        else {
+                            resetDplcResponseState();
+                        }
+                        break;
 
 					case PSTEC_PACKET_RX_MAGIC_CODE_1ST_BYTE:
 						if (ch == PSTEC_MAGIC_CODE_1ST_BYTE) {
@@ -742,10 +752,10 @@ void threadUart2_OtherMeters() {
 
 						dplcPacketRcvdBytes++;
 
-						if (dplcPacketApduLength > PSTEC_RESPONSE_PACKET_APDU_LENGTH_NORMAL_ACCUM) {
+						if (dplcPacketApduLength > PSTEC_RESPONSE_PACKET_APDU_LENGTH_PRECISE_ACCUM_INSTANT) {
 							resetDplcResponseState();
 						}
-						else if (dplcPacketApduLength == PSTEC_RESPONSE_PACKET_APDU_LENGTH_NORMAL_ACCUM) {
+						else if (dplcPacketApduLength == PSTEC_RESPONSE_PACKET_APDU_LENGTH_PRECISE_ACCUM_INSTANT) {
 							dplcPacketState = PSTEC_PACKET_RX_BCC;
 						}
 						break;
@@ -771,36 +781,53 @@ void threadUart2_OtherMeters() {
 
 							dplcPacketRcvdBytes++;
 
-							if ((PSTEC_REQUEST_PACKET_LENGTH + PSTEC_RESPONSE_PACKET_LENGTH_NORMAL_ACCUM) == dplcPacketRcvdBytes) {
-			//					dplcPacket.length = PSTEC_RESPONSE_PACKET_LENGTH_NORMAL_ACCUM;
+//@							if ((PSTEC_REQUEST_PACKET_LENGTH + PSTEC_RESPONSE_PACKET_LENGTH_NORMAL_ACCUM) == dplcPacketRcvdBytes) {
+//@			//					dplcPacket.length = PSTEC_RESPONSE_PACKET_LENGTH_NORMAL_ACCUM;
+							if ((PSTEC_REQUEST_PACKET_LENGTH + PSTEC_RESPONSE_PACKET_LENGTH_PRECISE_ACCUM_INSTANT) == dplcPacketRcvdBytes) {
+			//					dplcPacket.length = PSTEC_RESPONSE_PACKET_LENGPSTEC_RESPONSE_PACKET_LENGTH_PRECISE_ACCUM_INSTANTH_NORMAL_ACCUM;
 			//
 			//					ret = TRUE;
                                 float fValue = 0.0f;
-                                int nValue = 0;
-                                makeReverseBcdToInt(nValue, (buffer+6), 3);
-                                printf("#### threadUart2 - nValue : %d\n", nValue);
-                                printf("#### threadUart2 - Other Meters : %02x %02x %02x\n", 
-                                    buffer[6], buffer[7], buffer[8]);
-                                
-                                  if (PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_WATER == dplcPacketMeterType) {
-                                    fValue = (float)nValue / 10;
+//@                                int nValue = 0;
+                                int nValue1 = 0;
+                                int nValue2 = 0;
+//@                                makeReverseBcdToInt(nValue, (buffer+6), 3);
+                                makeReverseBcdToInt(nValue1, (buffer+2), 3);
+                                makeReverseBcdToInt(nValue2, (buffer+5), 2);
+//@                                printf("# thUart2- nValue : %d\n", nValue);
+//@                                printf("# thUart2- Other Meters : %02x %02x %02x\n", buffer[6], buffer[7], buffer[8]);
+                                //printf("# thUart2- nValue1 : %d, nValue2 : %d\n", nValue1, nValue2);
+                                //printf("# thUart2- Other Meters : %02x %02x %02x %02x %02x\n", buffer[2], buffer[3], buffer[4], buffer[5], buffer[6]);
+
+                                fValue = (float)nValue1 + (float)nValue2 / 10000.0;
+
+//@                                if (PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_WATER == dplcPacketMeterType) {
+                                if (PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_WATER == dplcPacketMeterType) {
+//@                                    fValue = (float)nValue / 10;
                                     water_meter_res->set_value(fValue);
-                                    printf("#### threadUart2 - Water Meter : %.1f\n", fValue);
+//@                                    printf("# thUart2- Water Meter : %.1f\n", fValue);
+                                    printf("# thUart2- Water Meter : %.4f\n", fValue);
                                 }
-                                else if (PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HOT_WATER == dplcPacketMeterType) {
-                                    fValue = (float)nValue / 10;
+//@                                else if (PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HOT_WATER == dplcPacketMeterType) {
+                                else if (PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_HOT_WATER == dplcPacketMeterType) {
+//@                                    fValue = (float)nValue / 10;
                                     hot_water_meter_res->set_value(fValue);
-                                    printf("#### threadUart2 - Hot Water Meter : %.1f\n", fValue);
+//@                                    printf("# thUart2- Hot Water Meter : %.1f\n", fValue);
+                                    printf("# thUart2- Hot Water Meter : %.4f\n", fValue);
                                 }
-                                else if (PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_GAS == dplcPacketMeterType) {
-                                    fValue = (float)nValue / 10;
+//@                                else if (PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_GAS == dplcPacketMeterType) {
+                                else if (PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_GAS == dplcPacketMeterType) {
+//@                                    fValue = (float)nValue / 10;
                                     gas_meter_res->set_value(fValue);
-                                    printf("#### threadUart2 - Gas Meter : %.1f\n", fValue);
+//@                                    printf("# thUart2- Gas Meter : %.1f\n", fValue);
+                                    printf("# thUart2- Gas Meter : %.4f\n", fValue);
                                 }
-                                else if (PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HEAT == dplcPacketMeterType) {
-                                    fValue = (float)nValue / 100;
+//@                                else if (PSTEC_NORMAL_ACCUM_ONLY_METER_TYPE_HEAT == dplcPacketMeterType) {
+                                else if (PSTEC_PRECISE_ACCUM_INSTANT_METER_TYPE_HEAT == dplcPacketMeterType) {
+//@                                    fValue = (float)nValue / 100;
                                     heat_meter_res->set_value(fValue);
-                                    printf("#### threadUart2 - Heat Meter : %.2f\n", fValue);
+//@                                    printf("# thUart2- Heat Meter : %.2f\n", fValue);
+                                    printf("# thUart2- Heat Meter : %.4f\n", fValue);
                                 }
 							}
 						}
@@ -809,6 +836,7 @@ void threadUart2_OtherMeters() {
 						break;
 
 					default:
+                        printf("# thUart2- 11. default %d\n", dplcPacketState);
 						break;
 				}
 			}
@@ -925,35 +953,35 @@ int main(void) {
     post_res->attach_post_callback(post_callback);
 
 #if 1
-    seoul_water_meter_res = client.create_resource("4110/0/5700", "Seoul-Water-Meter");
-    seoul_water_meter_res->set_value(0);
-    seoul_water_meter_res->methods(M2MMethod::GET);
-    seoul_water_meter_res->observable(true);
-    seoul_water_meter_res->attach_notification_callback(seoul_water_meter_callback);
-
     power_meter_res = client.create_resource("3331/0/5805", "electricEbnergy");
     power_meter_res->set_value(0);
     power_meter_res->methods(M2MMethod::GET);
     power_meter_res->observable(true);
     power_meter_res->attach_notification_callback(power_meter_callback);
 
-    gas_meter_res = client.create_resource("4120/0/5700", "Gas-Meter");
-    gas_meter_res->set_value(0);
-    gas_meter_res->methods(M2MMethod::GET);
-    gas_meter_res->observable(true);
-    gas_meter_res->attach_notification_callback(gas_meter_callback);
+    seoul_water_meter_res = client.create_resource("4110/0/5700", "Seoul-Water-Meter");
+    seoul_water_meter_res->set_value(0);
+    seoul_water_meter_res->methods(M2MMethod::GET);
+    seoul_water_meter_res->observable(true);
+    seoul_water_meter_res->attach_notification_callback(seoul_water_meter_callback);
 
-    water_meter_res = client.create_resource("4130/0/5700", "Water-Meter");
+    water_meter_res = client.create_resource("4120/0/5700", "Water-Meter");
     water_meter_res->set_value(0);
     water_meter_res->methods(M2MMethod::GET);
     water_meter_res->observable(true);
     water_meter_res->attach_notification_callback(water_meter_callback);
-
-    hot_water_meter_res = client.create_resource("4140/0/5700", "Hot-Water-Meter");
+    
+    hot_water_meter_res = client.create_resource("4130/0/5700", "Hot-Water-Meter");
     hot_water_meter_res->set_value(0);
     hot_water_meter_res->methods(M2MMethod::GET);
     hot_water_meter_res->observable(true);
     hot_water_meter_res->attach_notification_callback(hot_water_meter_callback);
+
+    gas_meter_res = client.create_resource("4140/0/5700", "Gas-Meter");
+    gas_meter_res->set_value(0);
+    gas_meter_res->methods(M2MMethod::GET);
+    gas_meter_res->observable(true);
+    gas_meter_res->attach_notification_callback(gas_meter_callback);
 
     heat_meter_res = client.create_resource("4150/0/5700", "Heat-Meter");
     heat_meter_res->set_value(0);
@@ -974,7 +1002,6 @@ int main(void) {
     while (i-- > 0 && !client.is_client_registered()) {
         wait_ms(100);
     }
-
 
 
 #if 1
