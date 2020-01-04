@@ -18,23 +18,36 @@
 #ifndef MBED_TEST_MODE
 
 #include "mbed.h"
+#include "rtos.h"
 #include "simple-mbed-cloud-client.h"
 #include "FATFileSystem.h"
 #include "LittleFileSystem.h"
 
+#include "platform/CircularBuffer.h"
+
+#define UART1_BUF_SIZE    512
+#define UART2_BUF_SIZE    512
+#define UART3_BUF_SIZE    512
+
+#define UART1_FLALG1        (1UL << 0)
+#define UART2_FLALG1        (1UL << 0)
+#define UART3_FLALG1        (1UL << 0)
+
+
 // Default network interface object. Don't forget to change the WiFi SSID/password in mbed_app.json if you're using WiFi.
-NetworkInterface *net = NetworkInterface::get_default_instance();
+NetworkInterface *net;
 
 // Default block device available on the target board
-BlockDevice *bd = BlockDevice::get_default_instance();
+BlockDevice* bd = BlockDevice::get_default_instance();
+SlicingBlockDevice sd(bd, 0, 2*1024*1024);
 
-#if COMPONENT_SD || COMPONENT_NUSD
-// Use FATFileSystem for SD card type blockdevices
-FATFileSystem fs("fs");
-#else
+//#if COMPONENT_SD || COMPONENT_NUSD
+//// Use FATFileSystem for SD card type blockdevices
+//FATFileSystem fs("fs");
+//#else
 // Use LittleFileSystem for non-SD block devices to enable wear leveling and other functions
 LittleFileSystem fs("fs");
-#endif
+//#endif
 
 #if USE_BUTTON == 1
 InterruptIn button(BUTTON1);
@@ -48,16 +61,38 @@ MbedCloudClientResource *button_res;
 MbedCloudClientResource *led_res;
 MbedCloudClientResource *post_res;
 
-MbedCloudClientResource *water_meter_res;
+
+MbedCloudClientResource *seoul_water_meter_res;
 MbedCloudClientResource *power_meter_res;
 MbedCloudClientResource *gas_meter_res;
-MbedCloudClientResource *seoul_water_meter_res;
+MbedCloudClientResource *water_meter_res;
 MbedCloudClientResource *hot_water_meter_res;
 MbedCloudClientResource *heat_meter_res;
 
 // An event queue is a very useful structure to debounce information between contexts (e.g. ISR and normal threads)
 // This is great because things such as network operations are illegal in ISR, so updating a resource in a button's fall() function is not allowed
 EventQueue eventQueue;
+
+#if 1
+Thread threadSeoulWaterMeter;
+Thread threadPowerMeter;
+Thread threadOtherMeters;
+
+EventFlags uart1_Flags;
+EventFlags uart2_Flags;
+EventFlags uart3_Flags;
+
+CircularBuffer<char, UART1_BUF_SIZE> bufUart1;
+CircularBuffer<char, UART2_BUF_SIZE> bufUart2;
+CircularBuffer<char, UART3_BUF_SIZE> bufUart3;
+
+Serial uart1SeoulWaterMater(PC_1, PC_0, 1200);    // 1200 BPS
+Serial uart2OtherMater(PA_2, PA_3, 4800);         // 4800 BPS
+Serial uart3PowerMeter(PC_4, PC_5, 9600);         // 9600 BPS
+#endif
+
+// When the device is registered, this variable will be used to access various useful information, like device ID etc.
+static const ConnectorClientEndpointInfo* endpointInfo;
 
 /**
  * PUT handler - sets the value of the built-in LED
@@ -109,10 +144,11 @@ void button_callback(MbedCloudClientResource *resource, const NoticationDelivery
  */
 void registered(const ConnectorClientEndpointInfo *endpoint) {
     printf("Registered to Pelion Device Management. Endpoint Name: %s\n", endpoint->internal_endpoint_name.c_str());
+    endpointInfo = endpoint;
 }
 
-void water_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
-    printf("Water-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
+void seoul_water_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
+    printf("Seoul-Water-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
 }
 
 void power_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
@@ -123,10 +159,9 @@ void gas_meter_callback(MbedCloudClientResource *resource, const NoticationDeliv
     printf("Gas-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
 }
 
-void seoul_water_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
-    printf("Seoul-Water-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
+void water_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
+    printf("Water-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
 }
-
 void hot_water_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
     printf("Hot-Water-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
 }
@@ -135,7 +170,105 @@ void heat_meter_callback(MbedCloudClientResource *resource, const NoticationDeli
     printf("Heat-Water-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
 }
 
+
+#if 1
+//static void txUart1Complete() {
+//    printf("Uart1 TX Complete\n");
+//}
+
+void request_SeoulWaterMeter() {
+    char bufRequestCommand[10] = "request";
+#if 0    
+    uart1SeoulWaterMater.write((const uint8_t *)bufRequestCommand, 
+                                sizeof(bufRequestCommand),
+                                (const event_callback_t &)txUart1Complete,
+                                SERIAL_EVENT_TX_COMPLETE);
+#else
+    while (true) {
+        if (uart1SeoulWaterMater.writeable()) {           
+            uart1SeoulWaterMater.printf(bufRequestCommand);
+            break;
+        }
+    }    
+#endif
+}
+
+void threadUart1_SeoulWaterMeter() {
+    printf("### threadUart1 - 1\n");
+    bufUart1.reset();
+    //threadSeoulWaterMeter.flags_clear();
+    printf("#### threadUart1 - 2\n");
+    //uart1_Flags.clear();
+    //    printf("#### threadUart1 - 3\n");
+
+    while(true) {
+        printf("### threadUart1 - 4\n");
+        //ThisThread::flags_wait_any((int32_t)0x01);
+        //uart1_Flags.wait_any(UART1_FLALG1);
+        //printf("#### threadUart1 - 5\n");
+        while(true) {
+            if (false == uart1SeoulWaterMater.readable()) {
+                break;
+            }
+            char ch = uart1SeoulWaterMater.getc();
+            if (false == bufUart1.full()) {
+                bufUart1.push(ch);
+                printf("#### threadUart1 - %02x pushed\n", ch);
+            }
+        }
+
+        int nCount = bufUart1.size();
+        if (8 <= nCount) {
+            // char ch = 0;
+            // bufUart1.pop(ch)
+            // bufUart1.peek(ch);
+
+            // Process seoul water meter packet
+            // int v = seoul_water_meter_value;
+            // seoul_water_meter_res->set_value(v)
+            //printf("#### threadUart1 - Seoul Water Meter : %d\n", v);
+        }
+        printf("### threadUart1 - 6\n");
+        //uart1_Flags.clear();
+        //    printf("### threadUart1 - 7\n");
+        Thread::wait(1000.0);
+    }
+}
+
+void rxCallback_SeoulWaterMeter() {
+    //printf("### rxCallback - 1\n");
+    char ch = uart1SeoulWaterMater.getc();
+    //printf("### rxCallback - 2\n");
+    if (false == bufUart1.full()) {
+        bufUart1.push(ch);
+        //printf("### rxCallback - 3\n");
+        //threadSeoulWaterMeter.flags_set((int32_t)0x01);
+        //uart1_Flags.set(UART1_FLALG1);
+    }
+    //printf("### rxCallback - 4\n");
+    // printf("Seoul Water Mater Rx = %02x", ch);
+}
+
+#if 0
+void rxOtherMeter() {
+    char ch = uart2OtherMater.getc();
+    printf("Other Mater Rx = %02x", ch);
+}
+#endif
+#endif
+
 int main(void) {
+//    uart1SeoulWaterMater.SetBaud(1200);     // 1200 BPS
+//    uart2OtherMater.SetBaud(4800);          // 4800 BPS
+//    uart3PowerMeter.SetBaud(9600);          // 9600 BPS
+
+
+    //uart2OtherMater.attach(&rxOtherMeter, Serial::RxIrq);
+
+
+
+
+#if 0
 #if MBED_CONF_SERCOMM_TPB23_PROVIDE_DEFAULT == 1
     DigitalOut TPB23_RESET(A1);
     TPB23_RESET = 0;    /* 0: Standby 1: Reset */
@@ -156,9 +289,10 @@ int main(void) {
     wait_ms(5000);
     printf("\nQUECTEL BG96 Standby\n");
 #endif
+#endif
     printf("\nStarting Simple Pelion Device Management Client example\n");
 
-    int storage_status = fs.mount(bd);
+    int storage_status = fs.mount(&sd);
     if (storage_status != 0) {
         printf("Storage mounting failed.\n");
     }
@@ -175,7 +309,7 @@ int main(void) {
 
     if (storage_status || btn_pressed) {
         printf("Formatting the storage...\n");
-        int storage_status = StorageHelper::format(&fs, bd);
+        int storage_status = StorageHelper::format(&fs, &sd);
         if (storage_status != 0) {
             printf("ERROR: Failed to reformat the storage (%d).\n", storage_status);
         }
@@ -183,13 +317,23 @@ int main(void) {
         printf("You can hold the user button during boot to format the storage and change the device identity.\n");
     }
 
-    // Connect to the Internet (DHCP is expected to be on)
-    printf("Connecting to the network using the default network interface...\n");
+    // Connect to the internet (DHCP is expected to be on)
+    printf("Connecting to the network using Wifi...\n");
     net = NetworkInterface::get_default_instance();
 
-    nsapi_error_t net_status = NSAPI_ERROR_NO_CONNECTION;
-    while ((net_status = net->connect()) != NSAPI_ERROR_OK) {
-        printf("Unable to connect to network (%d). Retrying...\n", net_status);
+    nsapi_error_t net_status = -1;
+    for (int tries = 0; tries < 3; tries++) {
+        net_status = net->connect();
+        if (net_status == NSAPI_ERROR_OK) {
+            break;
+        } else {
+            printf("Unable to connect to network. Retrying...\n");
+        }
+    }
+
+    if (net_status != NSAPI_ERROR_OK) {
+        printf("ERROR: Connecting to the network failed (%d)!\n", net_status);
+        return -1;
     }
 
     printf("Connected to the network successfully. IP address: %s\n", net->get_ip_address());
@@ -221,11 +365,11 @@ int main(void) {
     post_res->attach_post_callback(post_callback);
 
 #if 1
-    water_meter_res = client.create_resource("4110/0/5501", "Water-Meter");
+    water_meter_res = client.create_resource("4110/0/5501", "Seoul-Water-Meter");
     water_meter_res->set_value(0);
     water_meter_res->methods(M2MMethod::GET);
     water_meter_res->observable(true);
-    water_meter_res->attach_notification_callback(water_meter_callback);
+    water_meter_res->attach_notification_callback(seoul_water_meter_callback);
 
     power_meter_res = client.create_resource("3331/0/5805", "electricEbnergy");
     power_meter_res->set_value(0);
@@ -239,11 +383,11 @@ int main(void) {
     gas_meter_res->observable(true);
     gas_meter_res->attach_notification_callback(gas_meter_callback);
 
-    seoul_water_meter_res = client.create_resource("4130/0/5501", "Seoul-Water-Meter");
+    seoul_water_meter_res = client.create_resource("4130/0/5501", "Water-Meter");
     seoul_water_meter_res->set_value(0);
     seoul_water_meter_res->methods(M2MMethod::GET);
     seoul_water_meter_res->observable(true);
-    seoul_water_meter_res->attach_notification_callback(seoul_water_meter_callback);
+    seoul_water_meter_res->attach_notification_callback(water_meter_callback);
 
     hot_water_meter_res = client.create_resource("4140/0/5501", "Hot-Water-Meter");
     hot_water_meter_res->set_value(0);
@@ -266,6 +410,17 @@ int main(void) {
     // Register with Pelion DM
     client.register_and_connect();
 
+    int i = 600; // wait up 60 seconds before attaching sensors and button events
+    while (i-- > 0 && !client.is_client_registered()) {
+        wait_ms(100);
+    }
+
+    printf("### MainThread - 1\n");
+    threadSeoulWaterMeter.start(threadUart1_SeoulWaterMeter);
+    printf("### MainThread - 2\n");
+    //uart1SeoulWaterMater.attach(&rxCallback_SeoulWaterMeter, Serial::RxIrq);
+    //printf("### MainThread - 3\n");
+
 #if USE_BUTTON == 1
     // The button fires on an interrupt context, but debounces it to the eventqueue, so it's safe to do network operations
     button.fall(eventQueue.event(&button_press));
@@ -276,6 +431,8 @@ int main(void) {
     timer.attach(eventQueue.event(&button_press), 5.0);
     printf("Simulating button press every 5 seconds...\n");
 #endif /* USE_BUTTON */
+
+
 
     // You can easily run the eventQueue in a separate thread if required
     eventQueue.dispatch_forever();
