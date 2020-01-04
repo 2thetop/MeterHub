@@ -48,6 +48,13 @@ MbedCloudClientResource *button_res;
 MbedCloudClientResource *led_res;
 MbedCloudClientResource *post_res;
 
+MbedCloudClientResource *water_meter_res;
+MbedCloudClientResource *power_meter_res;
+MbedCloudClientResource *gas_meter_res;
+MbedCloudClientResource *seoul_water_meter_res;
+MbedCloudClientResource *hot_water_meter_res;
+MbedCloudClientResource *heat_meter_res;
+
 // An event queue is a very useful structure to debounce information between contexts (e.g. ISR and normal threads)
 // This is great because things such as network operations are illegal in ISR, so updating a resource in a button's fall() function is not allowed
 EventQueue eventQueue;
@@ -102,6 +109,30 @@ void button_callback(MbedCloudClientResource *resource, const NoticationDelivery
  */
 void registered(const ConnectorClientEndpointInfo *endpoint) {
     printf("Registered to Pelion Device Management. Endpoint Name: %s\n", endpoint->internal_endpoint_name.c_str());
+}
+
+void water_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
+    printf("Water-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
+}
+
+void power_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
+    printf("Power-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
+}
+
+void gas_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
+    printf("Gas-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
+}
+
+void seoul_water_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
+    printf("Seoul-Water-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
+}
+
+void hot_water_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
+    printf("Hot-Water-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
+}
+
+void heat_meter_callback(MbedCloudClientResource *resource, const NoticationDeliveryStatus status) {
+    printf("Heat-Water-Meter notification, status %s (%d)\n", MbedCloudClientResource::delivery_status_to_string(status), status);
 }
 
 int main(void) {
@@ -188,6 +219,44 @@ int main(void) {
     post_res = client.create_resource("3300/0/5605", "execute_function");
     post_res->methods(M2MMethod::POST);
     post_res->attach_post_callback(post_callback);
+
+#if 1
+    water_meter_res = client.create_resource("4110/0/5501", "Water-Meter");
+    water_meter_res->set_value(0);
+    water_meter_res->methods(M2MMethod::GET);
+    water_meter_res->observable(true);
+    water_meter_res->attach_notification_callback(water_meter_callback);
+
+    power_meter_res = client.create_resource("3331/0/5805", "electricEbnergy");
+    power_meter_res->set_value(0);
+    power_meter_res->methods(M2MMethod::GET);
+    power_meter_res->observable(true);
+    power_meter_res->attach_notification_callback(power_meter_callback);
+
+    gas_meter_res = client.create_resource("4120/0/5501", "Gas-Meter");
+    gas_meter_res->set_value(0);
+    gas_meter_res->methods(M2MMethod::GET);
+    gas_meter_res->observable(true);
+    gas_meter_res->attach_notification_callback(gas_meter_callback);
+
+    seoul_water_meter_res = client.create_resource("4130/0/5501", "Seoul-Water-Meter");
+    seoul_water_meter_res->set_value(0);
+    seoul_water_meter_res->methods(M2MMethod::GET);
+    seoul_water_meter_res->observable(true);
+    seoul_water_meter_res->attach_notification_callback(seoul_water_meter_callback);
+
+    hot_water_meter_res = client.create_resource("4140/0/5501", "Hot-Water-Meter");
+    hot_water_meter_res->set_value(0);
+    hot_water_meter_res->methods(M2MMethod::GET);
+    hot_water_meter_res->observable(true);
+    hot_water_meter_res->attach_notification_callback(hot_water_meter_callback);
+
+    heat_meter_res = client.create_resource("4150/0/5501", "Heat-Meter");
+    heat_meter_res->set_value(0);
+    heat_meter_res->methods(M2MMethod::GET);
+    heat_meter_res->observable(true);
+    heat_meter_res->attach_notification_callback(heat_meter_callback);
+#endif
 
     printf("Initialized Pelion Device Management Client. Registering...\n");
 
