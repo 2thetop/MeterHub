@@ -91,6 +91,9 @@ RawSerial uart2OtherMater(PA_2, PA_3);         // 4800 BPS
 RawSerial uart3PowerMeter(PC_4, PC_5);         // 9600 BPS
 #endif
 
+
+static int button_press_count = 0;
+
 void request_OtherMeters(uint8_t meterType);
 void request_SeoulWaterMeter();
 
@@ -136,12 +139,31 @@ void button_press() {
     button_res->set_value(v);
     printf("Button clicked %d times\n", v);
 
-    request_SeoulWaterMeter();
-
-    //request_WaterMeter();
-    //request_HotWaterMeter();
-    //request_GasMeter();
-    request_HeatMeter();
+    if(0 == button_press_count) {
+        request_SeoulWaterMeter();
+    }
+    else if(1 == button_press_count) {
+        request_WaterMeter();
+    }
+     else if(2 == button_press_count) {
+        request_HotWaterMeter();
+    }
+     else if(3 == button_press_count) {
+        request_GasMeter();
+    }
+     else if(4 == button_press_count) {
+        request_HeatMeter();
+    }
+#if 0  
+    else if(5 == button_press_count) {
+        request_PowerMeter();
+    }
+    button_press_count++;
+    button_press_count %= 6;
+#else
+    button_press_count++;
+    button_press_count %= 5;
+#endif
 
 }
 
@@ -279,7 +301,6 @@ static char seoulPacketLFieldValue = 0;
 static char seoulPacketUserDataLen = 0;
 static char seoulPacketRcvdBytes   = 0;
 static char seoulPacketChecksum    = 0;
-
 
 
 void request_SeoulWaterMeter() {
@@ -904,11 +925,11 @@ int main(void) {
     post_res->attach_post_callback(post_callback);
 
 #if 1
-    water_meter_res = client.create_resource("4110/0/5700", "Seoul-Water-Meter");
-    water_meter_res->set_value(0);
-    water_meter_res->methods(M2MMethod::GET);
-    water_meter_res->observable(true);
-    water_meter_res->attach_notification_callback(seoul_water_meter_callback);
+    seoul_water_meter_res = client.create_resource("4110/0/5700", "Seoul-Water-Meter");
+    seoul_water_meter_res->set_value(0);
+    seoul_water_meter_res->methods(M2MMethod::GET);
+    seoul_water_meter_res->observable(true);
+    seoul_water_meter_res->attach_notification_callback(seoul_water_meter_callback);
 
     power_meter_res = client.create_resource("3331/0/5805", "electricEbnergy");
     power_meter_res->set_value(0);
@@ -922,11 +943,11 @@ int main(void) {
     gas_meter_res->observable(true);
     gas_meter_res->attach_notification_callback(gas_meter_callback);
 
-    seoul_water_meter_res = client.create_resource("4130/0/5700", "Water-Meter");
-    seoul_water_meter_res->set_value(0);
-    seoul_water_meter_res->methods(M2MMethod::GET);
-    seoul_water_meter_res->observable(true);
-    seoul_water_meter_res->attach_notification_callback(water_meter_callback);
+    water_meter_res = client.create_resource("4130/0/5700", "Water-Meter");
+    water_meter_res->set_value(0);
+    water_meter_res->methods(M2MMethod::GET);
+    water_meter_res->observable(true);
+    water_meter_res->attach_notification_callback(water_meter_callback);
 
     hot_water_meter_res = client.create_resource("4140/0/5700", "Hot-Water-Meter");
     hot_water_meter_res->set_value(0);
