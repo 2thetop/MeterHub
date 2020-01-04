@@ -25,13 +25,10 @@
 
 #include "platform/CircularBuffer.h"
 
+
 #define UART1_BUF_SIZE    512
 #define UART2_BUF_SIZE    512
 #define UART3_BUF_SIZE    512
-
-#define UART1_FLALG1        (1UL << 0)
-#define UART2_FLALG1        (1UL << 0)
-#define UART3_FLALG1        (1UL << 0)
 
 
 // Default network interface object. Don't forget to change the WiFi SSID/password in mbed_app.json if you're using WiFi.
@@ -55,6 +52,7 @@ InterruptIn button(BUTTON1);
 
 // Default LED to use for PUT/POST example
 DigitalOut led(LED1, 0);
+DigitalOut led2(LED2, 0);
 
 // Declaring pointers for access to Pelion Device Management Client resources outside of main()
 MbedCloudClientResource *button_res;
@@ -86,10 +84,14 @@ CircularBuffer<char, UART1_BUF_SIZE> bufUart1;
 CircularBuffer<char, UART2_BUF_SIZE> bufUart2;
 CircularBuffer<char, UART3_BUF_SIZE> bufUart3;
 
-Serial uart1SeoulWaterMater(PC_1, PC_0, 1200);    // 1200 BPS
-Serial uart2OtherMater(PA_2, PA_3, 4800);         // 4800 BPS
-Serial uart3PowerMeter(PC_4, PC_5, 9600);         // 9600 BPS
+
+
+RawSerial uart1SeoulWaterMater(PC_1, PC_0);    // 1200 BPS
+RawSerial uart2OtherMater(PA_2, PA_3);         // 4800 BPS
+RawSerial uart3PowerMeter(PC_4, PC_5);         // 9600 BPS
 #endif
+
+void request_SeoulWaterMeter();
 
 // When the device is registered, this variable will be used to access various useful information, like device ID etc.
 static const ConnectorClientEndpointInfo* endpointInfo;
@@ -127,6 +129,8 @@ void button_press() {
     int v = button_res->get_value_int() + 1;
     button_res->set_value(v);
     printf("Button clicked %d times\n", v);
+
+    request_SeoulWaterMeter();
 }
 
 /**
@@ -172,61 +176,238 @@ void heat_meter_callback(MbedCloudClientResource *resource, const NoticationDeli
 
 
 #if 1
-//static void txUart1Complete() {
-//    printf("Uart1 TX Complete\n");
-//}
 
 void request_SeoulWaterMeter() {
-    char bufRequestCommand[10] = "request";
-#if 0    
-    uart1SeoulWaterMater.write((const uint8_t *)bufRequestCommand, 
-                                sizeof(bufRequestCommand),
-                                (const event_callback_t &)txUart1Complete,
-                                SERIAL_EVENT_TX_COMPLETE);
-#else
+    uint8_t bufRequestCommand[6];
+    uint8_t cmdLen = 0;
+
+    bufRequestCommand[cmdLen++] = 0x10;	// SEOUL_REQUEST_STX
+    bufRequestCommand[cmdLen++] = 0x5B;
+    bufRequestCommand[cmdLen++] = 0x01;
+    bufRequestCommand[cmdLen++] = (uint8_t)(bufRequestCommand[1] + bufRequestCommand[2]);   // checksum
+    bufRequestCommand[cmdLen++] = 0x16;	// SEOUL_REQUEST_ETX
+    bufRequestCommand[cmdLen]   = 0x00;
+
     while (true) {
-        if (uart1SeoulWaterMater.writeable()) {           
-            uart1SeoulWaterMater.printf(bufRequestCommand);
+        if (uart1SeoulWaterMater.writeable()) {
+            uart1SeoulWaterMater.printf((const char*)bufRequestCommand);
             break;
         }
-    }    
-#endif
+    }
+}
+
+enum
+{
+   SEOUL_REQUEST_STX           = 0x10,
+   SEOUL_REQUEST_ETX           = 0x16,
+   SEOUL_RESPONSE_STX          = 0x68,
+   SEOUL_RESPONSE_ETX          = SEOUL_REQUEST_ETX,
+   SEOUL_REQUEST_PACKET_LENGTH = 0x05  // 4 bytes
+};
+
+typedef enum
+{
+   INVALID_PACKET_STATE = 0,
+
+   SEOUL_PACKET_TX_STX = 120,
+   SEOUL_PACKET_TX_C_FIELD,
+   SEOUL_PACKET_TX_A_FIELD,
+   SEOUL_PACKET_TX_CHECKSUM,
+   SEOUL_PACKET_TX_ETX,
+   SEOUL_PACKET_RX_1ST_STX,
+   SEOUL_PACKET_RX_1ST_L_FIELD,
+   SEOUL_PACKET_RX_2ND_L_FIELD,
+   SEOUL_PACKET_RX_2ND_STX,
+   SEOUL_PACKET_RX_C_FIELD,
+   SEOUL_PACKET_RX_A_FIELD,
+   SEOUL_PACKET_RX_CI_FIELD,
+   SEOUL_PACKET_RX_DATA,
+   SEOUL_PACKET_RX_CHECKSUM,
+   SEOUL_PACKET_RX_ETX
+} PacketState;
+
+static PacketState seoulPacketState = INVALID_PACKET_STATE;
+
+static int seoulPacketLFieldValue = 0;
+static int seoulPacketUserDataLen = 0;
+static int seoulPacketRcvdBytes   = 0;
+static int seoulPacketChecksum    = 0;
+
+// 56 34 12 00
+void makeBcdToInt(int &nValue, char *pBuffer, int nCount) {
+    if ((NULL == pBuffer) || (nCount <= 0)) {
+        nValue = 0;
+        return;
+    }
+
+    int index = nCount - 1;
+    nValue = 0;
+    do {
+        char ch = *(pBuffer + index);
+
+        nValue *= 10;
+        nValue += ((ch & 0xF0) >> 4);
+        nValue *= 10;
+        nValue += (ch & 0x0F);
+
+        index--;
+    }
+    while(0 <= index);
+}
+
+void resetSeoulResponseState(void) {
+	seoulPacketState       = SEOUL_PACKET_RX_1ST_STX;
+	seoulPacketLFieldValue = 0;
+	seoulPacketUserDataLen = 0;
+	seoulPacketRcvdBytes   = 0;
+	seoulPacketChecksum    = 0;
 }
 
 void threadUart1_SeoulWaterMeter() {
+	char buffer[22];
+
     printf("### threadUart1 - 1\n");
-    bufUart1.reset();
-    //threadSeoulWaterMeter.flags_clear();
-    printf("#### threadUart1 - 2\n");
-    //uart1_Flags.clear();
-    //    printf("#### threadUart1 - 3\n");
 
     while(true) {
         printf("### threadUart1 - 4\n");
-        //ThisThread::flags_wait_any((int32_t)0x01);
-        //uart1_Flags.wait_any(UART1_FLALG1);
-        //printf("#### threadUart1 - 5\n");
-        while(true) {
-            if (false == uart1SeoulWaterMater.readable()) {
-                break;
-            }
-            char ch = uart1SeoulWaterMater.getc();
-            if (false == bufUart1.full()) {
-                bufUart1.push(ch);
-                printf("#### threadUart1 - %02x pushed\n", ch);
-            }
-        }
 
         int nCount = bufUart1.size();
-        if (8 <= nCount) {
-            // char ch = 0;
-            // bufUart1.pop(ch)
-            // bufUart1.peek(ch);
+         printf("#### threadUart1 - Buffer Count : %d\n", nCount);
 
-            // Process seoul water meter packet
-            // int v = seoul_water_meter_value;
-            // seoul_water_meter_res->set_value(v)
-            //printf("#### threadUart1 - Seoul Water Meter : %d\n", v);
+        if (21 <= (nCount + seoulPacketRcvdBytes)) {
+            char ch = 0;
+			for (uint8_t i = 0; i < nCount; i++) {
+				bufUart1.pop(ch);
+
+				switch (seoulPacketState)
+				{
+					case SEOUL_PACKET_RX_1ST_STX:
+                        printf("#### threadUart1 - 1. SEOUL_RESPONSE_STX 0\n");
+						if (ch == SEOUL_RESPONSE_STX) {
+							seoulPacketState = SEOUL_PACKET_RX_1ST_L_FIELD;
+							buffer[seoulPacketRcvdBytes++] = ch;
+                             printf("#### threadUart1 - 1. SEOUL_RESPONSE_STX 1\n");
+						}
+						break;
+
+					case SEOUL_PACKET_RX_1ST_L_FIELD:
+                        printf("#### threadUart1 - 2. SEOUL_PACKET_RX_1ST_L_FIELD 0\n");
+						seoulPacketState       = SEOUL_PACKET_RX_2ND_L_FIELD;
+						seoulPacketLFieldValue = ch;
+						buffer[seoulPacketRcvdBytes++] = ch;
+						break;
+
+					case SEOUL_PACKET_RX_2ND_L_FIELD:
+                        printf("#### threadUart1 - 3. SEOUL_PACKET_RX_2ND_L_FIELD 0\n");
+						if (ch == seoulPacketLFieldValue) {
+							seoulPacketState = SEOUL_PACKET_RX_2ND_STX;
+							buffer[seoulPacketRcvdBytes++] = ch;
+                            printf("#### threadUart1 - 3. SEOUL_PACKET_RX_2ND_L_FIELD 1\n");
+						}
+						else {
+							resetSeoulResponseState();
+                            printf("#### threadUart1 - 3. SEOUL_PACKET_RX_2ND_L_FIELD resetSeoulResponseState\n");
+						}
+						break;
+
+					case SEOUL_PACKET_RX_2ND_STX:
+                        printf("#### threadUart1 - 4. SEOUL_PACKET_RX_2ND_STX 0\n");
+						if (ch == SEOUL_RESPONSE_STX) {
+							seoulPacketState = SEOUL_PACKET_RX_C_FIELD;
+							buffer[seoulPacketRcvdBytes++] = ch;
+                            printf("#### threadUart1 - 4. SEOUL_PACKET_RX_2ND_STX 1\n");
+						}
+						break;
+
+					case SEOUL_PACKET_RX_C_FIELD:
+                        printf("#### threadUart1 - 5. SEOUL_PACKET_RX_C_FIELD 0\n");
+						if (ch < 0x80) {
+							seoulPacketState    = SEOUL_PACKET_RX_A_FIELD;
+							seoulPacketChecksum = ch;
+							buffer[seoulPacketRcvdBytes++] = ch;
+                            printf("#### threadUart1 - 5. SEOUL_PACKET_RX_C_FIELD 1\n");
+						}
+						else {
+							resetSeoulResponseState();
+                            printf("#### threadUart1 - 5. SEOUL_PACKET_RX_C_FIELD resetSeoulResponseState\n");
+						}
+						break;
+
+					case SEOUL_PACKET_RX_A_FIELD:
+                        printf("#### threadUart1 - 6. SEOUL_PACKET_RX_A_FIELD 0\n");
+						seoulPacketState     = SEOUL_PACKET_RX_CI_FIELD;
+						seoulPacketChecksum += ch;
+						buffer[seoulPacketRcvdBytes++] = ch;
+						break;
+
+					case SEOUL_PACKET_RX_CI_FIELD:
+                        printf("#### threadUart1 - 7. SEOUL_PACKET_RX_CI_FIELD 0\n");
+						seoulPacketState     = SEOUL_PACKET_RX_DATA;
+						seoulPacketChecksum += ch;
+						buffer[seoulPacketRcvdBytes++] = ch;
+						break;
+
+					case SEOUL_PACKET_RX_DATA:
+                        printf("#### threadUart1 - 8. SEOUL_PACKET_RX_DATA 0\n");
+						seoulPacketUserDataLen++;
+						seoulPacketChecksum += ch;
+						buffer[seoulPacketRcvdBytes++] = ch;
+                        // 3 = C (1 byte) + A (1 byte) + CI (1 byte)
+						if ((seoulPacketUserDataLen + 3) > seoulPacketLFieldValue) {
+							resetSeoulResponseState();
+                            printf("#### threadUart1 - 8. SEOUL_PACKET_RX_DATA resetSeoulResponseState\n");
+						}
+						else if ((seoulPacketUserDataLen + 3) == seoulPacketLFieldValue) {
+							seoulPacketState = SEOUL_PACKET_RX_CHECKSUM;
+                            printf("#### threadUart1 - 8. SEOUL_PACKET_RX_DATA 1\n");
+						}
+						break;
+
+					case SEOUL_PACKET_RX_CHECKSUM:
+                        printf("#### threadUart1 - 9. SEOUL_PACKET_RX_CHECKSUM 0\n");
+						//if (ch == seoulPacketChecksum) {
+                        if (true) {     // Ignore checksum fail
+							seoulPacketState = SEOUL_PACKET_RX_ETX;
+							buffer[seoulPacketRcvdBytes++] = ch;
+                            printf("#### threadUart1 - 9. SEOUL_PACKET_RX_CHECKSUM 1\n");
+						}
+						else {
+							resetSeoulResponseState();
+                            printf("#### threadUart1 - 9. SEOUL_PACKET_RX_CHECKSUM resetSeoulResponseState ch=%02x CheckSum=%02x\n", ch, seoulPacketChecksum);
+#if 0
+                            int nValue = 0;
+                            makeBcdToInt(nValue, (buffer+15), 4);
+                            printf("#### threadUart1 - nValue : %d\n", nValue);
+                            float fValue = (float)nValue / 1000;
+                            seoul_water_meter_res->set_value(fValue);
+                            //power_meter_res->set_value(fValue);
+                            printf("#### threadUart1 - Seoul Water Meter : %02x %02x %02x %02x\n", 
+                                    buffer[15], buffer[16], buffer[17], buffer[18]);
+                            printf("#### threadUart1 - Seoul Water Meter : %.3f\n", fValue);
+#endif
+						}
+						break;
+
+					case SEOUL_PACKET_RX_ETX:
+                        printf("#### threadUart1 - 10. SEOUL_PACKET_RX_ETX 0\n");
+						if (ch == SEOUL_RESPONSE_ETX) {
+							buffer[seoulPacketRcvdBytes++] = ch;
+
+                            int nValue = 0;
+                            makeBcdToInt(nValue, (buffer+15), 4);
+                            float fValue = (float)nValue / 1000;
+                            seoul_water_meter_res->set_value(fValue);
+                            printf("#### threadUart1 - Seoul Water Meter : %.3f\n", fValue);
+                        }
+
+						resetSeoulResponseState();
+						break;
+
+					default:
+                        printf("#### threadUart1 - 11. default %d\n", seoulPacketState);
+						break;
+				}
+			}
         }
         printf("### threadUart1 - 6\n");
         //uart1_Flags.clear();
@@ -235,38 +416,39 @@ void threadUart1_SeoulWaterMeter() {
     }
 }
 
+
 void rxCallback_SeoulWaterMeter() {
-    //printf("### rxCallback - 1\n");
     char ch = uart1SeoulWaterMater.getc();
-    //printf("### rxCallback - 2\n");
-    if (false == bufUart1.full()) {
-        bufUart1.push(ch);
-        //printf("### rxCallback - 3\n");
-        //threadSeoulWaterMeter.flags_set((int32_t)0x01);
-        //uart1_Flags.set(UART1_FLALG1);
-    }
-    //printf("### rxCallback - 4\n");
-    // printf("Seoul Water Mater Rx = %02x", ch);
+    bufUart1.push(ch);
+    led2 = !led2;
 }
 
-#if 0
-void rxOtherMeter() {
-    char ch = uart2OtherMater.getc();
-    printf("Other Mater Rx = %02x", ch);
+
+void threadUart2_OtherMeters() {
+	char buffer[22];
+
+    printf("### threadUart2 - 1\n");
+
+    while(true) {
+        printf("### threadUart2 - 4\n");
+
+        int nCount = bufUart2.size();
+        printf("#### threadUart2 - Buffer Count : %d\n", nCount);
+
+        printf("### threadUart2 - 6\n");
+        Thread::wait(1000.0);
+    }
 }
-#endif
+
+void rxCallback_OtherMeters() {
+    char ch = uart2OtherMater.getc();
+    bufUart2.push(ch);
+    led2 = !led2;
+}
+
 #endif
 
 int main(void) {
-//    uart1SeoulWaterMater.SetBaud(1200);     // 1200 BPS
-//    uart2OtherMater.SetBaud(4800);          // 4800 BPS
-//    uart3PowerMeter.SetBaud(9600);          // 9600 BPS
-
-
-    //uart2OtherMater.attach(&rxOtherMeter, Serial::RxIrq);
-
-
-
 
 #if 0
 #if MBED_CONF_SERCOMM_TPB23_PROVIDE_DEFAULT == 1
@@ -365,7 +547,7 @@ int main(void) {
     post_res->attach_post_callback(post_callback);
 
 #if 1
-    water_meter_res = client.create_resource("4110/0/5501", "Seoul-Water-Meter");
+    water_meter_res = client.create_resource("4110/0/5700", "Seoul-Water-Meter");
     water_meter_res->set_value(0);
     water_meter_res->methods(M2MMethod::GET);
     water_meter_res->observable(true);
@@ -377,25 +559,25 @@ int main(void) {
     power_meter_res->observable(true);
     power_meter_res->attach_notification_callback(power_meter_callback);
 
-    gas_meter_res = client.create_resource("4120/0/5501", "Gas-Meter");
+    gas_meter_res = client.create_resource("4120/0/5700", "Gas-Meter");
     gas_meter_res->set_value(0);
     gas_meter_res->methods(M2MMethod::GET);
     gas_meter_res->observable(true);
     gas_meter_res->attach_notification_callback(gas_meter_callback);
 
-    seoul_water_meter_res = client.create_resource("4130/0/5501", "Water-Meter");
+    seoul_water_meter_res = client.create_resource("4130/0/5700", "Water-Meter");
     seoul_water_meter_res->set_value(0);
     seoul_water_meter_res->methods(M2MMethod::GET);
     seoul_water_meter_res->observable(true);
     seoul_water_meter_res->attach_notification_callback(water_meter_callback);
 
-    hot_water_meter_res = client.create_resource("4140/0/5501", "Hot-Water-Meter");
+    hot_water_meter_res = client.create_resource("4140/0/5700", "Hot-Water-Meter");
     hot_water_meter_res->set_value(0);
     hot_water_meter_res->methods(M2MMethod::GET);
     hot_water_meter_res->observable(true);
     hot_water_meter_res->attach_notification_callback(hot_water_meter_callback);
 
-    heat_meter_res = client.create_resource("4150/0/5501", "Heat-Meter");
+    heat_meter_res = client.create_resource("4150/0/5700", "Heat-Meter");
     heat_meter_res->set_value(0);
     heat_meter_res->methods(M2MMethod::GET);
     heat_meter_res->observable(true);
@@ -415,11 +597,34 @@ int main(void) {
         wait_ms(100);
     }
 
+
+
+#if 1
+    resetSeoulResponseState();
+    bufUart1.reset();
+    uart1SeoulWaterMater.baud(1200);
+
     printf("### MainThread - 1\n");
     threadSeoulWaterMeter.start(threadUart1_SeoulWaterMeter);
     printf("### MainThread - 2\n");
-    //uart1SeoulWaterMater.attach(&rxCallback_SeoulWaterMeter, Serial::RxIrq);
-    //printf("### MainThread - 3\n");
+    uart1SeoulWaterMater.attach(&rxCallback_SeoulWaterMeter, Serial::RxIrq);
+    printf("### MainThread - 3\n");
+
+
+    bufUart2.reset();
+    uart2OtherMater.baud(4800);
+
+    printf("### MainThread - 4\n");
+    threadOtherMeters.start(threadUart2_OtherMeters);
+    printf("### MainThread - 5\n");
+    uart2OtherMater.attach(&rxCallback_OtherMeters, Serial::RxIrq);
+    printf("### MainThread - 6\n"); 
+
+
+    //bufUart3.reset();
+    //uart3PowerMeter.baud(9600);
+
+#endif
 
 #if USE_BUTTON == 1
     // The button fires on an interrupt context, but debounces it to the eventqueue, so it's safe to do network operations
